@@ -14,36 +14,34 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # This Default Prompt Using Chinese and could be changed to other languages.
 
-DEFAULT_PROMPT = """使用markdown语法，将图片中识别到的文字转换为markdown格式输出。你必须做到：
-1. 输出和使用识别到的图片的相同的语言，例如，识别到英语的字段，输出的内容必须是英语。
-2. 不要解释和输出无关的文字，直接输出图片中的内容。例如，严禁输出 "以下是我根据图片内容生成的markdown文本："这样的例子，而是应该直接输出markdown。
-3. 内容不要包含在```markdown ```中、段落公式使用 $$ $$ 的形式、行内公式使用 $ $ 的形式、忽略掉长直线、忽略掉页码。
-再次强调，不要解释和输出无关的文字，直接输出图片中的内容。
+DEFAULT_PROMPT = """Using markdown syntax, convert the recognized text in the image to markdown format output. You must:
+1. Output and use the same language detected in the image, for example, if a field is detected as English, the output must be in English.
+2. Do not explain or output irrelevant text, directly output the content in the image. For example, it is strictly forbidden to output examples like "The following is the markdown text I generated based on the image content:"; instead, output the markdown text directly.
+3. Do not wrap the content with ```markdown ```, use $$ $$ for block formulas, $ $ for inline formulas, ignore long straight lines, and ignore page numbers.
+To reiterate, do not explain or output irrelevant text, just output the content in the image directly.
 """
-DEFAULT_RECT_PROMPT = """图片中用红色框和名称(%s)标注出了一些区域。如果区域是表格或者图片，使用 ![]() 的形式插入到输出内容中，否则直接输出文字内容。
+DEFAULT_RECT_PROMPT = """Some areas are marked in the image with a red box and label (%s). If the area is a table or image, use ![]() to insert it into the output; otherwise, output the text content directly.
 """
-DEFAULT_ROLE_PROMPT = """你是一个PDF文档解析器，使用markdown和latex语法输出图片的内容。
+DEFAULT_ROLE_PROMPT = """You are a PDF document parser. Output the content of the image using markdown and LaTeX syntax.
 """
-
 
 def _is_near(rect1, rect2, distance = 20):
     """
-    检查两个矩形是否靠近，如果它们之间的距离小于目标距离。
-    @param rect1: 矩形1
-    @param rect2: 矩形2
-    @param distance: 目标距离
-    @return: 是否靠近
+    Check if two rectangles are close, i.e., if their distance is less than the target distance.
+    @param rect1: Rectangle 1
+    @param rect2: Rectangle 2
+    @param distance: Target distance
+    @return: Whether they are close
     """
     return rect1.buffer(0.1).distance(rect2.buffer(0.1)) < distance
 
-
 def _is_horizontal_near(rect1, rect2, distance = 100):
     """
-    检查两个矩形是否水平靠近，如果其中一个矩形是水平线。
-    @param rect1: 矩形1
-    @param rect2: 矩形2
-    @param distance: 目标距离
-    @return: 是否水平靠近
+    Check if two rectangles are horizontally close, especially if one is a horizontal line.
+    @param rect1: Rectangle 1
+    @param rect2: Rectangle 2
+    @param distance: Target distance
+    @return: Whether they are horizontally close
     """
     result = False
     if abs(rect1.bounds[3] - rect1.bounds[1]) < 0.1 or abs(rect2.bounds[3] - rect2.bounds[1]) < 0.1:
@@ -51,24 +49,22 @@ def _is_horizontal_near(rect1, rect2, distance = 100):
             result = abs(rect1.bounds[3] - rect2.bounds[3]) < distance
     return result
 
-
 def _union_rects(rect1, rect2):
     """
-    合并两个矩形。
-    @param rect1: 矩形1
-    @param rect2: 矩形2
-    @return: 合并后的矩形
+    Merge two rectangles.
+    @param rect1: Rectangle 1
+    @param rect2: Rectangle 2
+    @return: Merged rectangle
     """
     return sg.box(*(rect1.union(rect2).bounds))
 
-
 def _merge_rects(rect_list, distance = 20, horizontal_distance = None):
     """
-    合并列表中的矩形，如果它们之间的距离小于目标距离。
-    @param rect_list: 矩形列表
-    @param distance: 目标距离
-    @param horizontal_distance: 水平目标距离
-    @return: 合并后的矩形列表
+    Merge rectangles in the list if they are closer than the target distance.
+    @param rect_list: List of rectangles
+    @param distance: Target distance
+    @param horizontal_distance: Horizontal target distance
+    @return: Merged rectangle list
     """
     merged = True
     while merged:
@@ -86,14 +82,13 @@ def _merge_rects(rect_list, distance = 20, horizontal_distance = None):
         rect_list = new_rect_list
     return rect_list
 
-
 def _adsorb_rects_to_rects(source_rects, target_rects, distance=10):
     """
-    当距离小于目标距离时，将一组矩形吸附到另一组矩形。
-    @param source_rects: 源矩形列表
-    @param target_rects: 目标矩形列表
-    @param distance: 目标距离
-    @return: 吸附后的源矩形列表和目标矩形列表
+    Attach a set of rectangles to another set if they are closer than the target distance.
+    @param source_rects: Source rectangle list
+    @param target_rects: Target rectangle list
+    @param distance: Target distance
+    @return: Updated source and target rectangle lists after attachment
     """
     new_source_rects = []
     for text_area_rect in source_rects:
@@ -108,58 +103,56 @@ def _adsorb_rects_to_rects(source_rects, target_rects, distance=10):
             new_source_rects.append(text_area_rect)
     return new_source_rects, target_rects
 
-
 def _parse_rects(page):
     """
-    解析页面中的绘图，并合并相邻的矩形。
-    @param page: 页面
-    @return: 矩形列表
+    Parse drawings in the page and merge adjacent rectangles.
+    @param page: Page
+    @return: List of rectangles
     """
 
-    # 提取画的内容
+    # Extract drawing content
     drawings = page.get_drawings()
 
-    # 忽略掉长度小于30的水平直线
+    # Ignore horizontal lines shorter than 30 units
     is_short_line = lambda x: abs(x['rect'][3] - x['rect'][1]) < 1 and abs(x['rect'][2] - x['rect'][0]) < 30
     drawings = [drawing for drawing in drawings if not is_short_line(drawing)]
 
-    # 转换为shapely的矩形
+    # Convert to shapely rectangles
     rect_list = [sg.box(*drawing['rect']) for drawing in drawings]
 
-    # 提取图片区域
+    # Extract image areas
     images = page.get_image_info()
     image_rects = [sg.box(*image['bbox']) for image in images]
 
-    # 合并drawings和images
+    # Merge drawings and images
     rect_list += image_rects
 
     merged_rects = _merge_rects(rect_list, distance=10, horizontal_distance=100)
     merged_rects = [rect for rect in merged_rects if explain_validity(rect) == 'Valid Geometry']
 
-    # 将大文本区域和小文本区域分开处理: 大文本相小合并，小文本靠近合并
+    # Separate large and small text areas: merge large text closely, merge small text if near
     is_large_content = lambda x: (len(x[4]) / max(1, len(x[4].split('\n')))) > 5
     small_text_area_rects = [sg.box(*x[:4]) for x in page.get_text('blocks') if not is_large_content(x)]
     large_text_area_rects = [sg.box(*x[:4]) for x in page.get_text('blocks') if is_large_content(x)]
-    _, merged_rects = _adsorb_rects_to_rects(large_text_area_rects, merged_rects, distance=0.1) # 完全相交
-    _, merged_rects = _adsorb_rects_to_rects(small_text_area_rects, merged_rects, distance=5) # 靠近
+    _, merged_rects = _adsorb_rects_to_rects(large_text_area_rects, merged_rects, distance=0.1) # Fully overlapping
+    _, merged_rects = _adsorb_rects_to_rects(small_text_area_rects, merged_rects, distance=5) # Nearby
 
-    # 再次自身合并
+    # Merge again
     merged_rects = _merge_rects(merged_rects, distance=10)
 
-    # 过滤比较小的矩形
+    # Filter out rectangles that are too small
     merged_rects = [rect for rect in merged_rects if rect.bounds[2] - rect.bounds[0] > 20 and rect.bounds[3] - rect.bounds[1] > 20]
 
     return [rect.bounds for rect in merged_rects]
 
-
 def _parse_pdf_to_images(pdf_path, output_dir = './'):
     """
-    解析PDF文件到图片，并保存到输出目录。
-    @param pdf_path: PDF文件路径
-    @param output_dir: 输出目录
-    @return: 图片信息列表(图片路径, 矩形图片路径列表)
+    Parse PDF file to images and save to the output directory.
+    @param pdf_path: PDF file path
+    @param output_dir: Output directory
+    @return: List of image info (image path, list of rectangle image paths)
     """
-    # 打开PDF文件
+    # Open PDF file
     pdf_document = fitz.open(pdf_path)
     image_infos = []
 
@@ -169,24 +162,24 @@ def _parse_pdf_to_images(pdf_path, output_dir = './'):
         rects = _parse_rects(page)
         for index, rect in enumerate(rects):
             fitz_rect = fitz.Rect(rect)
-            # 保存页面为图片
+            # Save page as image
             pix = page.get_pixmap(clip=fitz_rect, matrix=fitz.Matrix(4, 4))
             name = f'{page_index}_{index}.png'
             pix.save(os.path.join(output_dir, name))
             rect_images.append(name)
-            # # 在页面上绘制红色矩形
+            # Draw red rectangle on the page
             big_fitz_rect = fitz.Rect(fitz_rect.x0 - 1, fitz_rect.y0 - 1, fitz_rect.x1 + 1, fitz_rect.y1 + 1)
-            # 空心矩形
+            # Hollow rectangle
             page.draw_rect(big_fitz_rect, color=(1, 0, 0), width=1)
-            # 画矩形区域(实心)
+            # Draw filled rectangle (commented out)
             # page.draw_rect(big_fitz_rect, color=(1, 0, 0), fill=(1, 0, 0))
-            # 在矩形内的左上角写上矩形的索引name，添加一些偏移量
+            # Write the rectangle's index name at the top left inside the rectangle, with some offset
             text_x = fitz_rect.x0 + 2
             text_y = fitz_rect.y0 + 10
             text_rect = fitz.Rect(text_x, text_y - 9, text_x + 80, text_y + 2)
-            # 绘制白色背景矩形
+            # Draw white background rectangle
             page.draw_rect(text_rect, color=(1, 1, 1), fill=(1, 1, 1))
-            # 插入带有白色背景的文字
+            # Insert text with white background
             page.insert_text((text_x, text_y), name, fontsize=10, color=(1, 0, 0))
         page_image_with_rects = page.get_pixmap(matrix=fitz.Matrix(3, 3))
         page_image = os.path.join(output_dir, f'{page_index}.png')
@@ -198,7 +191,7 @@ def _parse_pdf_to_images(pdf_path, output_dir = './'):
 
 def _remove_markdown_backticks(content: str) -> str:
     """
-    删除markdown中的```字符串。
+    Remove ``` strings from markdown content.
     """
     if '```markdown' in content:
         content = content.replace('```markdown\n', '')
@@ -206,7 +199,6 @@ def _remove_markdown_backticks(content: str) -> str:
         if last_backticks_pos != -1:
             content = content[:last_backticks_pos] + content[last_backticks_pos + 3:]
     return content
-
 
 def parse_pdf(
         pdf_path: str,
@@ -220,10 +212,10 @@ def parse_pdf(
         role_prompt = DEFAULT_ROLE_PROMPT,
 ) -> Tuple[str, List[str]]:
     """
-    解析PDF文件到markdown文件。
-    @param pdf_path: PDF文件路径
-    @param output_dir: 输出目录
-    @return: 解析后的markdown内容, 矩形图片路径列表
+    Parse PDF file to a markdown file.
+    @param pdf_path: PDF file path
+    @param output_dir: Output directory
+    @return: Parsed markdown content, list of rectangle image paths
     """
     
     if not os.path.exists(output_dir):
@@ -233,16 +225,16 @@ def parse_pdf(
     
     # Process images with GPT
     def _process_page(index: int, image_info: Tuple[str, List[str]]) -> Tuple[int, str]:
-        # 使用 OpenAI 客户端替代 Agent
+        # Use OpenAI client instead of Agent
         client = OpenAI(api_key=api_key, base_url=base_url)
         page_image, rect_images = image_info
         local_prompt = prompt
         if rect_images:
             local_prompt += rect_prompt + ', '.join(rect_images)
         
-        # 打开图片文件
+        # Open image file
         with open(page_image, "rb") as image_file:
-            # 调用 OpenAI API
+            # Call OpenAI API
             try:
                 response = client.chat.completions.create(
                     model=model,
@@ -255,7 +247,7 @@ def parse_pdf(
                     ]
                 )
 
-                # 检查 response.choices 是否为 None
+                # Check if response.choices is None
                 if not response.choices:
                     print(response)
                     return index, f"Error: Empty choices in API response for page {index+1}"
@@ -263,7 +255,7 @@ def parse_pdf(
                 content = response.choices[0].message.content
                 return index, content
             except Exception as e:
-                # 捕获所有异常并返回错误信息
+                # Catch all exceptions and return error message
                 return index, f"Error processing page {index+1}: {str(e)}"
 
     contents = [None] * len(image_infos)
@@ -274,13 +266,13 @@ def parse_pdf(
             content = _remove_markdown_backticks(content)
             contents[index] = content
 
-    # 保存解析后的markdown文件
+    # Save parsed markdown file
     output_path = os.path.join(output_dir, 'output.md')
     content = '\n\n'.join(contents)
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(content)
 
-    #  删除中间过程的图片
+    # Delete intermediate images
     all_rect_images = []
     for page_image, rect_images in image_infos:
         if os.path.exists(page_image):
